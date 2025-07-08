@@ -273,8 +273,8 @@ def fit_circle_check(
         Vector containing (x) coordinates of points belonging to a tree section.
     Y : numpy.ndarray
         Vector containing (y) coordinates of points belonging to a tree section.
-    second_time : numpy.ndarray
-        Vector containing integers that indicates whether it is the first time
+    second_time : int
+        Integer that indicates whether it is the first time
         a circle is fitted or not (will be modified internally).
     times_R : float
         Ratio of radius between outer circle and inner circle.
