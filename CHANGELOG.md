@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Changed
+
+- Update to pgeof 0.3.3 (Minor speed improvements)
+
 ## [0.6.0] - 2024-05-15
 
 ### Added

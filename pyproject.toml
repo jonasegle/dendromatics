@@ -28,7 +28,7 @@ dependencies = [
     "csf_3dfin~=2.0.1",
     "laspy~=2.5.4",
     "numpy>=1.25",         #NEP 29
-    "pgeof==0.3.2",
+    "pgeof~=0.3.3",
     "scikit_learn~=1.6.1",
     "scipy~=1.15.1",
 ]
