@@ -23,14 +23,15 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "csf_3dfin~=2.0.1",
     "laspy~=2.5.4",
     "numpy>=1.25",         #NEP 29
-    "pgeof~=0.3.3",
-    "scikit_learn~=1.6.1",
-    "scipy~=1.15.1",
+    "pgeof~=0.3.4",
+    "scikit_learn>=1.6.0,<1.8.0",
+    "scipy>=1.15.0,<1.17.0",
 ]
 
 [project.optional-dependencies]
