@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.10, <3.14"
+requires-python = ">=3.10, <3.15"
 resolution-markers = [
     "python_full_version >= '3.11'",
     "python_full_version < '3.11'",
@@ -417,6 +417,10 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/43/72/96efd91e0111a22c14ee996309cb8a7a1cee9935959a42cba36958987a43/pgeof-0.3.4-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:aab0c4efd812c827968f7458e961cbfafc292884c344532d870c0da8fa3e475a", size = 192418, upload-time = "2025-10-06T09:26:47.564Z" },
     { url = "https://files.pythonhosted.org/packages/0c/de/9fa72b07b4c56f929f867daef766b7682f0d925b5698cb429fbba951a1f7/pgeof-0.3.4-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:1ca24ab4e2e977c79c7387e679863f5f45aefdb5bbd337d558d4af5b26ee78de", size = 683424, upload-time = "2025-10-06T09:26:48.785Z" },
     { url = "https://files.pythonhosted.org/packages/cd/ed/45e62f5e370cfafba7d50321af34b55d4a576528b81c1f46fbd70b600194/pgeof-0.3.4-cp313-cp313-win_amd64.whl", hash = "sha256:f2e4aef2c7b0a468765c23ed58f157c9b04fe1f3665491efc9c6116dec8938d2", size = 343221, upload-time = "2025-10-06T09:26:49.823Z" },
+    { url = "https://files.pythonhosted.org/packages/19/5b/4d39f4666d1dc7d310f7b886f20c8acc02afe1a11ddf609a82c783763e08/pgeof-0.3.4-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:a9729aa007174fba8549274d69e50eb4a599c3d7cb8673f48aa0013110a104e8", size = 143947, upload-time = "2025-10-06T09:26:51.162Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/fd/c0f98d5537177b0d52a5edd064201703e0799ec04e1593cbcd18976a357b/pgeof-0.3.4-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1f8adf55351f7436f7c9918d940099ac735e3b02cf834ce0b2cbc3868270d56c", size = 192272, upload-time = "2025-10-06T09:26:52.576Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/c4/375442d26d2a37ce9322d153f18913de63e281f3eb32770db85b18560b10/pgeof-0.3.4-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:7c3bfb99e53810eac20e73276965943adab8a3a8674c55b21e22d47770afffc8", size = 683347, upload-time = "2025-10-06T09:26:53.608Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/e1/112db42269f3bd60b50411b27cf2764a865723cc739bd46de51acba60068/pgeof-0.3.4-cp314-cp314-win_amd64.whl", hash = "sha256:4736367cb71594848c5336b8b50e4cb1f4d5e238738c90d231b132343137ab8e", size = 353834, upload-time = "2025-10-06T09:26:54.937Z" },
 ]
 
 [[package]]

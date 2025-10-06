@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [0.7.0]
+
 ### Changed
 
-- Update to pgeof 0.3.4 (Minor speed improvements)
+- Update to pgeof 0.3.4 (Minor speed improvements and python 3.14 support)
 
 - Remove useless parameters in `sections.tree_locator`
 
