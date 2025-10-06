@@ -772,7 +772,7 @@ def tree_locator(
         lower_d_section = max(0, which_dbh - d)
         upper_d_section = min(sections.shape[0], which_dbh + d)
         # BH section and its neighbors. From now on, neighborhood
-        close_to_dbh = np.arange(lower_d_section, upper_d_section)
+        close_to_dbh = np.arange(lower_d_section, upper_d_section + 1)  # upper bound is exclusive
 
         for i in range(n_trees):  # For each tree
             which_valid_R = R[i, close_to_dbh] > 0  # From neighborhood, select only those with non 0 radius

@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update to pgeof 0.3.3 (Minor speed improvements)
+- Update to pgeof 0.3.4 (Minor speed improvements)
+
+### Fixed
+
+- A bug in `sections.tree_locator` where the range of used circles around the DBH was wrongly restricted to two values instead of three.
+  The fix has a huge impact on the number of computed DBH which is be lower now.
+
 
 ## [0.6.0] - 2024-05-15
 
