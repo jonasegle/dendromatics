@@ -679,8 +679,6 @@ def tree_locator(
     sector_perct,
     R,
     outliers,
-    n_points_in,
-    threshold=5,
     X_field=0,
     Y_field=1,
     Z_field=2,
@@ -709,11 +707,6 @@ def tree_locator(
         Vector containing section radii.
     outliers : numpy.ndarray
         Vector containing the 'outlier probability' of each section.
-    n_points_in : numpy.ndarray
-        Matrix containing the number of points in the inner circles.
-    threshold : float
-        Minimum number of points in inner circle for a fitted circle to be valid.
-        Defaults to 5.
     X_field : int
         Index at which (x) coordinate is stored. Defaults to 0.
     Y_field : int
@@ -781,7 +774,6 @@ def tree_locator(
             # only those with sector occupancy higher than 30 %
             which_valid_sector_perct = sector_perct[i, close_to_dbh] > 30.0
             # valid points could be retrieved as well / i.e. only those with enough points in inner circle
-            # which_valid_points = (n_points_in[i, close_to_dbh] < threshold)
 
             # If there are valid sections among the selected
             if np.any(which_valid_R) & np.any(which_valid_out):
