@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2024-12-05
+
+### Changed
+
+- Update to pgeof 0.3.4 (Minor speed improvements and python 3.14 support)
+
+- Remove useless parameters in `sections.tree_locator`
+
+### Fixed
+
+- A bug in `sections.tree_locator` where the range of used circles around the DBH was wrongly restricted to two values instead of three.
+  The fix has a huge impact on the number of computed DBH which could be lower now.
+
 ## [0.6.0] - 2024-05-15
 
 ### Added
@@ -52,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Minimum python version is now 3.9.
 
 - Migrate to hatch 1.12+. Make use of `hatch format` and `hatch test` command
+
 ## [0.4.2] - 2024-03-14
 
 ### Changed
@@ -74,14 +88,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Update `CSF` to point to the CSF-3DFin fork. This add a fix that improve numpy array - CSF interop.
-Height normalization processing is faster (depdending the size of the cloud it could be of several orders of magnitude)
+  Height normalization processing is faster (depdending the size of the cloud it could be of several orders of magnitude)
 
 ## [0.4.0] - 2024-01-24
 
 ### Added
 
 - `ground.check_normalization_discrepancy` returns the indicator and the percentage of discrepancy
-between the original area and the slice area.
+  between the original area and the slice area.
 
 ## [0.3.1] - 2024-01-23
 
