@@ -21,6 +21,7 @@ def verticality_clustering_iteration(
     resolution_xy,
     resolution_z,
     n_digits,
+    h_range_value,
 ):
     """This function is to be used internally by verticality_clustering. The
     intended use of this function is to accept a stripe as an input, defined
@@ -53,6 +54,8 @@ def verticality_clustering_iteration(
     n_digits : int
         Number of digits dedicated to each coordinate ((x), (y) or (z)) during
         the generation of each point code.
+    h_range_value : float
+        Minimum height range that a cluster must have to be considered as a potential stem.
 
     Returns
     -------
@@ -147,9 +150,28 @@ def verticality_clustering_iteration(
             "Clusters were found, but they are too small to be considered potential "
             "stems using current settings. Suggestion: decrease n_points."
         )
-
+    
     # Removing the points that are not in valid clusters.
     clust_stripe = vox_filt_lab_stripe[np.isin(vox_filt_lab_stripe[:, -1], large_clusters)]
+    
+    # Filtering of clusters that do not extend throughout the defined height
+    # range. This is done by checking the z values of the points that
+    # belong to each cluster and checking if the difference between the
+    # maximum and minimum z value is higher than the defined height range.
+    if h_range_value > 0:
+        valid_mask = np.zeros(len(large_clusters), dtype=bool)
+        for idx, i in enumerate(large_clusters):
+            cluster_mask = cluster_labels == i
+            cluster_points = vox_filt_stripe[cluster_mask]
+            if np.ptp(cluster_points[:, 2]) > h_range_value:
+                valid_mask[idx] = True
+        large_clusters = large_clusters[valid_mask]
+
+    # Remap cluster IDs to consecutive 0..N-1.
+    # DBSCAN (especially dendroptimized) can assign non-sequential labels,
+    # and filtering above may create further gaps.
+    _, inverse = np.unique(clust_stripe[:, -1], return_inverse=True)
+    clust_stripe[:, -1] = inverse
 
     n_clusters = large_clusters.shape[0]
 
@@ -175,6 +197,7 @@ def verticality_clustering(
     resolution_xy=0.02,
     resolution_z=0.02,
     n_digits=5,
+    h_range_value=0,
 ):
     """This function implements a for loop that iteratively calls
     verticality_clustering_iteration, 'peeling off' the stems.
@@ -229,7 +252,7 @@ def verticality_clustering(
     for i in np.arange(n_iter):
         print("Iteration number", i + 1, "out of", n_iter)
         clust_stripe, t = verticality_clustering_iteration(
-            aux_stripe, scale, vert_threshold, n_points, resolution_xy, resolution_z, n_digits
+            aux_stripe, scale, vert_threshold, n_points, resolution_xy, resolution_z, n_digits, h_range_value
         )
         aux_stripe = clust_stripe
         total_t = total_t + t
