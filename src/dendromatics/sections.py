@@ -1197,7 +1197,7 @@ def tree_locator(
                         abs_dev = np.abs(valid_radii - median_radius)
                         mad = np.median(abs_dev)  # Median absolute deviation
                         # Only keep sections close to median radius (3 MAD criterion)
-                        filtered_sections = valid_sections[abs_dev < 3 * mad]
+                        filtered_sections = valid_sections[abs_dev <= 3 * mad]
                         # 3 things can happen here:
                         # There are no deviated sections --> there is coherence among 3 --> case B
                         # There are 2 deviated sections --> only median radius survives filter --> case C

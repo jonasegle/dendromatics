@@ -151,9 +151,6 @@ def verticality_clustering_iteration(
             "stems using current settings. Suggestion: decrease n_points."
         )
     
-    # Removing the points that are not in valid clusters.
-    clust_stripe = vox_filt_lab_stripe[np.isin(vox_filt_lab_stripe[:, -1], large_clusters)]
-    
     # Filtering of clusters that do not extend throughout the defined height
     # range. This is done by checking the z values of the points that
     # belong to each cluster and checking if the difference between the
@@ -166,6 +163,9 @@ def verticality_clustering_iteration(
             if np.ptp(cluster_points[:, 2]) > h_range_value:
                 valid_mask[idx] = True
         large_clusters = large_clusters[valid_mask]
+
+    # Removing the points that are not in valid clusters.
+    clust_stripe = vox_filt_lab_stripe[np.isin(vox_filt_lab_stripe[:, -1], large_clusters)]
 
     # Remap cluster IDs to consecutive 0..N-1.
     # DBSCAN (especially dendroptimized) can assign non-sequential labels,
