@@ -95,7 +95,7 @@ stems = dm.verticality_clustering(xyz0_coords)[:, 0:6]
 section_len = 0.2
 sections = np.arange(min_h, max_h, section_len)  # Range of uniformly spaced values within the specified interval
 
-X_c, Y_c, R, check_circle, second_time, sector_perct, n_points_in = dm.compute_sections(stems, sections)
+X_c, Y_c, R, check_circle, pass_method, sector_perct, n_points_in = dm.compute_sections(stems, sections)
 # ---------------------------------------------------------#
 
 ### Tilt detection ###
