@@ -16,6 +16,7 @@ def generate_circles_cloud(
     n_points_in,
     tree_vector,
     outliers,
+    pass_method=None,
     R_min=0.03,
     R_max=0.5,
     threshold=5,
@@ -46,6 +47,9 @@ def generate_circles_cloud(
         detected_trees output from individualize_trees.
     outliers : numpy.ndarray
         Vector containing the 'outlier probability' of each section.
+    pass_method : numpy.ndarray or None
+        Matrix indicating which fitting pass produced each circle
+        (0=invalid, 1=LSM, 2=WRLTS, 3=polar). None treated as all zeros.
     R_min : float
         Refer to fit_circle_check in 'sections' module. Defaults to 0.03.
     R_max : float
@@ -69,9 +73,12 @@ def generate_circles_cloud(
     # the center of the circles for a given tree.
     tree_section = X_c.shape
 
+    if pass_method is None:
+        pass_method = np.zeros(tree_section)
+
     # Empty array that will contain the information about each section, to then
     # be used to complete the .LAS file data.
-    section_c_xyz = np.zeros([tree_section[0] * tree_section[1], 9])
+    section_c_xyz = np.zeros([tree_section[0] * tree_section[1], 10])
 
     # Auxiliary index indicating which section is in use.
     section = 0
@@ -92,6 +99,7 @@ def generate_circles_cloud(
                     n_points_in[i, j],
                     sections[j],
                     outliers[i, j],
+                    pass_method[i, j],
                 ]
 
                 section = section + 1
@@ -103,7 +111,7 @@ def generate_circles_cloud(
     n = centers.shape[0]
 
     # Empty vector to be filled with the coordinates of each circle.
-    coords = np.zeros((circa_points * n, 11))
+    coords = np.zeros((circa_points * n, 12))
 
     # User-create function to tranform polar coordinates to cartesian coordinates.
     def polar_to_cart(theta, rho):
@@ -122,8 +130,8 @@ def generate_circles_cloud(
 
         coords[start:end, 0] = x + centers[i, 0]  # X
         coords[start:end, 1] = y + centers[i, 1]  # Y
-        coords[start:end, 2] = centers[i, 2]  # check
-        coords[start:end, 3] = centers[i, 4]  # Z0
+        coords[start:end, 2] = centers[i, 2]  # Z
+        coords[start:end, 3] = centers[i, 4]  # check_circle
         coords[start:end, 4] = i  # Tree ID
         coords[start:end, 5] = centers[i, 5]  # sector occupancy
         coords[start:end, 6] = centers[i, 6]  # points in inner circle
@@ -141,6 +149,8 @@ def generate_circles_cloud(
             coords[start:end, 10] = 1  # does not pass quality checks
         else:
             coords[start:end, 10] = 0  # passes quality checks
+
+        coords[start:end, 11] = centers[i, 9]  # pass_method
     return coords
 
 
@@ -155,6 +165,7 @@ def draw_circles(
     tree_vector,
     outliers,
     filename_las,
+    pass_method=None,
     R_min=0.03,
     R_max=0.5,
     threshold=5,
@@ -187,6 +198,9 @@ def draw_circles(
         Vector containing the 'outlier probability' of each section.
     filename_las : char
         File name for the output file.
+    pass_method : numpy.ndarray or None
+        Matrix indicating which fitting pass produced each circle
+        (0=invalid, 1=LSM, 2=WRLTS, 3=polar). None treated as all zeros.
     R_min : float
         Refer to fit_circle_check in 'sections' module. Defaults to 0.03.
     R_max : float
@@ -210,6 +224,7 @@ def draw_circles(
         n_points_in,
         tree_vector,
         outliers,
+        pass_method,
         R_min,
         R_max,
         threshold,
@@ -249,6 +264,9 @@ def draw_circles(
 
     las_circ.add_extra_dim(laspy.ExtraBytesParams(name="quality", type=np.int32))
     las_circ.quality = coords[:, 10]
+
+    las_circ.add_extra_dim(laspy.ExtraBytesParams(name="pass_method", type=np.int32))
+    las_circ.pass_method = coords[:, 11]
 
     las_circ.write(filename_las)
 

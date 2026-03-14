@@ -114,6 +114,7 @@ dm.draw_circles(
     tree_vector,
     outliers,
     filename_las,
+    pass_method=pass_method,
 )
 dm.draw_axes(tree_vector, filename_las)
 # ---------------------------------------------------------#
