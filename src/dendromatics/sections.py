@@ -113,6 +113,81 @@ def fit_circle(X, Y):
     # Output: - X, Y coordinates of best-fit circle center - its radius
     return circle_c, mean_radius
 
+def fit_circle_wrlts(X, Y, h_frac=0.75, n_starts=10, max_iter=50, tol=1e-6):
+    """Fit a circle using Weighted Repeated Least Trimmed Squares (WRLTS).
+
+    Uses bi-square weighted residuals when evaluating the trimmed objective.
+    This reduces the influence of inlier variation (noise / off-surface points)
+    and is preferred when the inlier spread is large (Nurunnabi et al. 2018,
+    Pattern Recognition).
+
+    The bi-square weight for each point in the h-subset is
+
+        w(e*) = (1 - e*²)²   if |e*| < 1
+                0             otherwise
+
+    where  e* = e / (6 · MAD)  and  MAD = median(|e|)  over the h-subset.
+
+    The weighted objective minimised over starts is
+
+        SSe = Σ_{j=1}^{h}  w(e_j*) · e_j²
+
+    Parameters
+    ----------
+    X, Y      : numpy.ndarray — 2D point coordinates
+    h_frac    : float — fraction of points to keep (trimming fraction),
+                default 0.75 (keep 75 %, trim 25 %)
+    n_starts  : int   — number of random starting subsets
+    max_iter  : int   — max iterations per start
+    tol       : float — convergence tolerance on the weighted trimmed objective
+
+    Returns
+    -------
+    center     : numpy.ndarray — (x, y) of the circle centre
+    radius     : float         — circle radius
+    sigma      : float         — std dev of point-to-centre distances (on h-subset)
+    sigma_mean : float         — sigma / sqrt(h)
+    """
+    def _bisquare_weights(e):
+        mad = float(np.median(np.abs(e)))
+        if mad < 1e-12:
+            return np.ones(len(e))
+        e_star = e / (6.0 * mad)
+        return np.where(np.abs(e_star) < 1.0, (1.0 - e_star**2)**2, 0.0)
+
+    n = len(X)
+    h = max(3, int(np.round(h_frac * n)))
+    rng = np.random.default_rng()
+
+    best_obj = np.inf
+    best_center = None
+    best_radius = None
+
+    for _ in range(n_starts):
+        idx = rng.choice(n, size=h, replace=False)
+
+        prev_obj = np.inf
+        for _ in range(max_iter):
+            center, radius = fit_circle(X[idx], Y[idx])
+
+            residuals = np.abs(np.sqrt((X - center[0])**2 + (Y - center[1])**2) - radius)
+
+            idx = np.argsort(residuals)[:h]
+
+            e_h = residuals[idx]
+            w_h = _bisquare_weights(e_h)
+            obj = float(np.sum(w_h * e_h**2))
+
+            if abs(prev_obj - obj) < tol:
+                break
+            prev_obj = obj
+
+        if obj < best_obj:
+            best_obj = obj
+            best_center = center
+            best_radius = radius
+
+    return best_center, float(best_radius)
 
 # -----------------------------------------------------------------------------
 # inner_circle
@@ -260,6 +335,7 @@ def fit_circle_check(
     n_sectors,
     min_n_sectors,
     width,
+    use_wrlts=True,
 ):
     """This function calls fit_circle() to fit points within a section to a
     circle by least squares minimization. These circles will define tree
@@ -320,7 +396,10 @@ def fit_circle_check(
     if X.size > n_points_section:
         # Call to fit_circle to fit the circle that best fits all points
         # within the section.
-        (circle_center, R) = fit_circle(X=X, Y=Y)
+        if use_wrlts:
+            (circle_center, R) = fit_circle_wrlts(X=X, Y=Y)
+        else:
+            (circle_center, R) = fit_circle(X=X, Y=Y)
         X_c = circle_center[0]  # Column 0 is center X coordinate
         Y_c = circle_center[1]  # Column 1 is center Y coordinate
 
