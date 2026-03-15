@@ -38,7 +38,9 @@ def clean_ground(cloud, res_ground=0.15, min_points=2):
         the denoised points.
     """
 
-    vox_cloud, vox_to_cloud_ind, _ = voxelate(cloud, res_ground, res_ground, with_n_points=False)
+    cloud_f64 = cloud if cloud.dtype == np.float64 else cloud.astype(np.float64)
+    vox_cloud, vox_to_cloud_ind, _ = voxelate(cloud_f64, res_ground, res_ground, with_n_points=False)
+    del cloud_f64
     # Cluster labels are appended to the FILTERED cloud. They map each point to
     # the cluster they belong to, according to the clustering algorithm.
     eps = res_ground * math.sqrt(3) + 1e-6
@@ -108,7 +110,8 @@ def generate_dtm(
     csf.params.verbose = True
     # csf.params.rigidness # 1, 2 or 3
 
-    csf.set_point_cloud(cloud)  # pass the (x), (y), (z) list to csf
+    # CSF requires float64 input
+    csf.set_point_cloud(cloud.astype(np.float64) if cloud.dtype != np.float64 else cloud)
 
     raw_nodes = csf.run_cloth_simulation()  # do actual filtering and export cloth
     cloth_nodes = np.reshape(np.array(raw_nodes), (-1, 3))
@@ -280,7 +283,9 @@ def check_normalization_discrepancy(cloud, original_area, res_xy=1.0, z_min=-0.1
     ground_slice = cloud[(cloud[:, 2] >= z_min) & (cloud[:, 2] <= z_max)]
 
     # Voxelate the slice and store only cloud_to_vox_ind output for efficiency
-    _, _, voxelated_slice = voxelate(ground_slice, res_xy, res_z, with_n_points=False, verbose=True)
+    gs_f64 = ground_slice if ground_slice.dtype == np.float64 else ground_slice.astype(np.float64)
+    _, _, voxelated_slice = voxelate(gs_f64, res_xy, res_z, with_n_points=False, verbose=True)
+    del gs_f64
 
     # Area of the voxelated ground slice (n of voxels * area of voxel base)
     slice_area = voxelated_slice.shape[0] * res_xy**2

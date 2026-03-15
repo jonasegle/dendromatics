@@ -64,13 +64,14 @@ def voxelate(
 
     t = timeit.default_timer()
 
-    # The coordinate minima
-    cloud_min = np.min(cloud[:, [X_field, Y_field, Z_field]], axis=0)
+    # The coordinate minima (always computed in float64 for precision)
+    cloud_min = np.min(cloud[:, [X_field, Y_field, Z_field]], axis=0).astype(np.float64)
 
-    # Substraction of the coordinates
-    cloud[:, X_field] = cloud[:, X_field] - cloud_min[0]
-    cloud[:, Y_field] = cloud[:, Y_field] - cloud_min[1]
-    cloud[:, Z_field] = cloud[:, Z_field] - cloud_min[2]
+    # Compute translated coordinates in float64 for code generation
+    # (avoids in-place modification that loses precision with float32 clouds)
+    x_translated = cloud[:, X_field].astype(np.float64) - cloud_min[0]
+    y_translated = cloud[:, Y_field].astype(np.float64) - cloud_min[1]
+    z_translated = cloud[:, Z_field].astype(np.float64) - cloud_min[2]
 
     if verbose:
         elapsed = timeit.default_timer() - t
@@ -89,10 +90,11 @@ def voxelate(
 
     # Generation of 'pixel code'. It provides each point with an unique identifier.
     code = (
-        np.floor(cloud[:, Z_field] / resolution_z) * 10 ** (n_digits * 2)
-        + np.floor(cloud[:, Y_field] / resolution_xy) * 10**n_digits
-        + np.floor(cloud[:, X_field] / resolution_xy)
+        np.floor(z_translated / resolution_z) * 10 ** (n_digits * 2)
+        + np.floor(y_translated / resolution_xy) * 10**n_digits
+        + np.floor(x_translated / resolution_xy)
     )
+    del x_translated, y_translated, z_translated
 
     if not verbose:
         elapsed = timeit.default_timer() - t
@@ -127,6 +129,7 @@ def voxelate(
     unique_code, vox_first_point_id, inverse_id, vox_points = np.unique(
         code, return_index=True, return_inverse=True, return_counts=True
     )
+    del code
 
     if not verbose:
         elapsed = timeit.default_timer() - t
@@ -135,10 +138,17 @@ def voxelate(
     # Indexes that directly associate each voxel to its corresponding points in
     # the original cloud (unordered)
     vox_to_cloud_ind = inverse_id[vox_order_ind_inverse]
+    del inverse_id, vox_order_ind_inverse
 
     # Indexes that directly associate each point in the original, unordered cloud
     # to its corresponding voxel
     cloud_to_vox_ind = vox_order_ind[vox_first_point_id]
+    del vox_first_point_id
+
+    # Store counts for verbose output before potentially deleting vox_order_ind
+    n_original = vox_to_cloud_ind.shape[0]
+    n_voxels = cloud_to_vox_ind.shape[0]
+    del vox_order_ind
 
     # Empty array to be filled with voxel coordinates
     voxelated_cloud = np.zeros((np.size(unique_code, 0), 3))
@@ -147,10 +157,12 @@ def voxelate(
     z_code = np.floor(unique_code / 10 ** (n_digits * 2))
     y_code = np.floor((unique_code - z_code * 10 ** (n_digits * 2)) / 10**n_digits)
     x_code = unique_code - z_code * 10 ** (n_digits * 2) - y_code * 10**n_digits
+    del unique_code
 
     voxelated_cloud[:, 0] = x_code
     voxelated_cloud[:, 1] = y_code
     voxelated_cloud[:, 2] = z_code
+    del x_code, y_code, z_code
 
     if not verbose:
         elapsed = timeit.default_timer() - t
@@ -166,27 +178,24 @@ def voxelate(
     # points in each voxel
     if with_n_points is True:
         voxelated_cloud = np.append(voxelated_cloud, vox_points[:, np.newaxis], axis=1)
+    del vox_points
 
     if not verbose:
         elapsed = timeit.default_timer() - t
         print("        ", "%.2f" % elapsed, "s: rescaling and translating back")
         print(
             "        ",
-            "{:.2f}".format(vox_to_cloud_ind.shape[0] / 1000000),
+            "{:.2f}".format(n_original / 1000000),
             "million points ->",
-            "{:.2f}".format(cloud_to_vox_ind.shape[0] / 1000000),
+            "{:.2f}".format(n_voxels / 1000000),
             "million voxels",
         )
         print(
             "        ",
             "Voxels account for",
-            "{:.2f}".format(cloud_to_vox_ind.shape[0] * 100 / vox_to_cloud_ind.shape[0]),
+            "{:.2f}".format(n_voxels * 100 / n_original),
             "% of original points",
         )
-
-    cloud[:, X_field] = cloud[:, X_field] + cloud_min[0]
-    cloud[:, Y_field] = cloud[:, Y_field] + cloud_min[1]
-    cloud[:, Z_field] = cloud[:, Z_field] + cloud_min[2]
 
     return voxelated_cloud, vox_to_cloud_ind, cloud_to_vox_ind
 

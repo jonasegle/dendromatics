@@ -87,8 +87,8 @@ def compute_axes_exact(
     start_total = timeit.default_timer()
     # Empty vectors that will store final outputs: - distance from each point to
     # closest axis - ID of the corresponding tree (the tree that the point belongs to).
-    dist_to_axis = np.zeros((np.size(voxelated_cloud, 0))) + 100000  # distance to the closest axis
-    tree_id_vector = np.zeros((np.size(voxelated_cloud, 0))) + 100000  # tree ID of closest axis
+    dist_to_axis = np.full(np.size(voxelated_cloud, 0), 100000.0, dtype=np.float32)  # distance to the closest axis
+    tree_id_vector = np.full(np.size(voxelated_cloud, 0), 100000.0, dtype=np.float32)  # tree ID of closest axis
 
     # Set of all possible trees (trunks at this stage) and number of points associated to each:
     unique_values, n = np.unique(clust_stripe[:, tree_id_field], return_counts=True)
@@ -452,10 +452,11 @@ def compute_axes_approximate(
     # Compute distances and NN axis for each point via a KDTree.
     tree = KDTree(axes_cloud)
     dist_to_axis, indexes = tree.query(voxelated_cloud[:, [X_field, Y_field, Z_field]], 1, workers=-1)
+    dist_to_axis = dist_to_axis.astype(np.float32)
     dist_to_axis[dist_to_axis > d_max] = d_max
 
     # fill tree_cluster
-    tree_cluster = np.zeros(voxelated_cloud.shape[0])
+    tree_cluster = np.zeros(voxelated_cloud.shape[0], dtype=np.float32)
     min_id = 0
     for i, axis_points in enumerate(axes_points_list):
         num_points = axis_points.shape[0]
@@ -536,8 +537,9 @@ def compute_heights(
     # The cloud is re-voxelated to a larger resolution to then be clusterized.
     # Small clusters containing 1-2 voxels will be discarded to eliminate
     # outliers points that could interfere in height measurement.
+    vc_f64 = voxelated_cloud if voxelated_cloud.dtype == np.float64 else voxelated_cloud.astype(np.float64)
     large_voxels_cloud, large_vox_to_cloud_ind, _ = voxelate(
-        voxelated_cloud,
+        vc_f64,
         resolution_heights,
         resolution_heights,
         n_digits,
@@ -546,6 +548,7 @@ def compute_heights(
         Z_field,
         with_n_points=False,
     )
+    del vc_f64
 
     # eps for DBSCAN
     eps_heights = resolution_heights * math.sqrt(3) + 1e-6
@@ -553,15 +556,15 @@ def compute_heights(
     # Large-resolution voxelated cloud is clusterized
     cluster_labels = DBSCAN_clustering(large_voxels_cloud, eps=eps_heights, min_samples=2)
 
-    # Cluster labels are attached to the fine-resolution voxelated cloud
-    voxelated_cloud = np.append(
-        voxelated_cloud,
-        np.expand_dims(cluster_labels[large_vox_to_cloud_ind], axis=1),
-        axis=1,
-    )
-
-    # Tree IDS are attached to the fine-resolution voxelated cloud too
-    voxelated_cloud = np.append(voxelated_cloud, np.expand_dims(tree_id_vector, axis=1), axis=1)
+    # Attach cluster labels and tree IDs to fine-resolution voxelated cloud
+    n_cols = voxelated_cloud.shape[1]
+    extended = np.empty((voxelated_cloud.shape[0], n_cols + 2), dtype=voxelated_cloud.dtype)
+    extended[:, :n_cols] = voxelated_cloud
+    extended[:, n_cols] = cluster_labels[large_vox_to_cloud_ind]
+    extended[:, n_cols + 1] = tree_id_vector
+    del voxelated_cloud
+    voxelated_cloud = extended
+    del extended
 
     # Eliminating all points too far away from axes
     voxelated_cloud = voxelated_cloud[dist_to_axis < d, :]
@@ -709,8 +712,10 @@ def individualize_trees(
     """
 
     # Whole original cloud voxelization
+    # voxelate requires float64 when using dendroptimized backend
+    cloud_f64 = cloud if cloud.dtype == np.float64 else cloud.astype(np.float64)
     voxelated_cloud, vox_to_cloud_ind, _ = voxelate(
-        cloud,
+        cloud_f64,
         resolution_z,
         resolution_xy,
         n_digits,
@@ -719,6 +724,7 @@ def individualize_trees(
         Z_field,
         with_n_points=False,
     )
+    del cloud_f64
 
     # Call to compute_axes
     detected_trees, dist_to_axis, tree_id_vector = compute_axes_approximate(
@@ -755,9 +761,10 @@ def individualize_trees(
 
     # Two new fields are added to the original cloud: - tree ID (id of closest axis)
     # - distance to that axis
-    assigned_cloud = np.hstack(
-        [cloud, tree_id_vector[vox_to_cloud_ind, np.newaxis], dist_to_axis[vox_to_cloud_ind, np.newaxis]]
-    )
+    assigned_cloud = np.empty((cloud.shape[0], cloud.shape[1] + 2), dtype=cloud.dtype)
+    assigned_cloud[:, :cloud.shape[1]] = cloud
+    assigned_cloud[:, cloud.shape[1]] = tree_id_vector[vox_to_cloud_ind]
+    assigned_cloud[:, cloud.shape[1] + 1] = dist_to_axis[vox_to_cloud_ind]
 
     # Output: - Assigned cloud (X, Y, Z, Z0, tree_id, dist_to_axis) - tree vector
     return assigned_cloud, detected_trees, tree_heights

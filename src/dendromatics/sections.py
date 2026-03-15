@@ -749,13 +749,13 @@ def compute_sections(
     )
 
     # Output matrices
-    X_c = np.zeros((n_trees, n_sections))
-    Y_c = np.zeros((n_trees, n_sections))
-    R = np.zeros((n_trees, n_sections))
-    check_circle = np.zeros((n_trees, n_sections))
-    pass_method = np.zeros((n_trees, n_sections))
-    sector_perct = np.zeros((n_trees, n_sections))
-    n_points_in = np.zeros((n_trees, n_sections))
+    X_c = np.zeros((n_trees, n_sections), dtype=np.float32)
+    Y_c = np.zeros((n_trees, n_sections), dtype=np.float32)
+    R = np.zeros((n_trees, n_sections), dtype=np.float32)
+    check_circle = np.zeros((n_trees, n_sections), dtype=np.int8)
+    pass_method = np.zeros((n_trees, n_sections), dtype=np.int8)
+    sector_perct = np.zeros((n_trees, n_sections), dtype=np.float32)
+    n_points_in = np.zeros((n_trees, n_sections), dtype=np.int32)
 
     tree = -1
     if progress_hook is not None:

@@ -72,9 +72,12 @@ def verticality_clustering_iteration(
     print(" -Computing verticality...")
 
     # Call to 'voxelate' function to voxelate the cloud.
+    # voxelate requires float64 when using dendroptimized backend
+    stripe_f64 = stripe if stripe.dtype == np.float64 else stripe.astype(np.float64)
     voxelated_stripe, vox_to_stripe_ind, _ = voxelate(
-        stripe, resolution_xy, resolution_z, n_digits, with_n_points=False
+        stripe_f64, resolution_xy, resolution_z, n_digits, with_n_points=False
     )
+    del stripe_f64
     # Computation of verticality values associated to voxels using
     # 'compute_features' function. It needs a vicinity radius, provided by
     # 'vert_scale'.
@@ -105,9 +108,11 @@ def verticality_clustering_iteration(
     print(" -Clustering...")
 
     # The filtered cloud is voxelated.
+    filt_stripe_f64 = filt_stripe if filt_stripe.dtype == np.float64 else filt_stripe.astype(np.float64)
     vox_filt_stripe, vox_to_filt_stripe_ind, _ = voxelate(
-        filt_stripe, resolution_xy, resolution_z, n_digits, with_n_points=False
+        filt_stripe_f64, resolution_xy, resolution_z, n_digits, with_n_points=False
     )
+    del filt_stripe_f64
 
     eps = resolution_xy * math.sqrt(3) + 1e-6
     # Clusterization of the voxelated cloud obtained from the filtered cloud.
