@@ -412,11 +412,19 @@ def check_relative_radius(R_current, R_neighbor, max_relative_deviation):
 
 
 def polar_sector_approximation(X, Y, X_c_ref, Y_c_ref, n_sectors):
-    """Approximate a circle using polar-coordinate sector averaging.
+    """Approximate a circle using polar-coordinate sector averaging with
+    center refinement.
 
     Converts points to polar coordinates around a reference center, bins them
-    into angular sectors, and averages the radius per sector. The reference
-    center is kept as the circle center (trusted from a valid neighbor).
+    into angular sectors, and averages the radius per sector.  When at least
+    3 sectors are occupied a linear cosine model is fitted to the per-sector
+    radii to estimate an offset (dx, dy) from the reference center:
+
+        r(θ) ≈ R_true + dx·cos(θ) + dy·sin(θ)
+
+    This corrects systematic bias when the true stem center differs from the
+    neighbor center.  With fewer than 3 occupied sectors the reference center
+    is kept as-is (the system is underdetermined).
 
     Parameters
     ----------
@@ -429,12 +437,12 @@ def polar_sector_approximation(X, Y, X_c_ref, Y_c_ref, n_sectors):
 
     Returns
     -------
-    X_c_ref : float
-        Circle center X (unchanged from input).
-    Y_c_ref : float
-        Circle center Y (unchanged from input).
+    X_c : float
+        Refined circle center X.
+    Y_c : float
+        Refined circle center Y.
     R_approx : float
-        Approximated radius (mean of per-sector average radii).
+        Approximated radius.
     n_occupied : int
         Number of sectors that contained at least one point.
     """
@@ -450,18 +458,40 @@ def polar_sector_approximation(X, Y, X_c_ref, Y_c_ref, n_sectors):
     sector_ids = np.floor(theta_shifted / sector_size).astype(int)
     sector_ids = np.clip(sector_ids, 0, n_sectors - 1)
 
+    sector_angles = []
     sector_radii = []
     for s in range(n_sectors):
         mask = sector_ids == s
         if np.any(mask):
             sector_radii.append(np.mean(r[mask]))
+            sector_angles.append(np.mean(theta[mask]))
 
     n_occupied = len(sector_radii)
     if n_occupied == 0:
         return X_c_ref, Y_c_ref, 0.0, 0
 
-    R_approx = float(np.mean(sector_radii))
-    return X_c_ref, Y_c_ref, R_approx, n_occupied
+    sector_radii = np.asarray(sector_radii)
+    sector_angles = np.asarray(sector_angles)
+
+    if n_occupied >= 3:
+        # Fit r(θ) = R + dx·cos(θ) + dy·sin(θ) via least squares
+        A = np.column_stack([
+            np.ones(n_occupied),
+            np.cos(sector_angles),
+            np.sin(sector_angles),
+        ])
+        # lstsq gives [R_true, dx, dy]
+        params, _, _, _ = np.linalg.lstsq(A, sector_radii, rcond=None)
+        R_approx = float(params[0])
+        X_c = X_c_ref + float(params[1])
+        Y_c = Y_c_ref + float(params[2])
+    else:
+        # Not enough sectors to determine center offset — keep reference
+        R_approx = float(np.mean(sector_radii))
+        X_c = X_c_ref
+        Y_c = Y_c_ref
+
+    return X_c, Y_c, R_approx, n_occupied
 
 
 # -----------------------------------------------------------------------------
@@ -473,7 +503,7 @@ def run_quality_checks(
     X, Y, X_c, Y_c, R,
     times_R, threshold, R_min, R_max,
     n_sectors, min_n_sectors, width,
-    R_neighbor=None, max_relative_deviation=0.5,
+    R_neighbor=None, max_relative_deviation=0.05,
 ):
     """Consolidated quality checks for a fitted circle.
 
@@ -550,7 +580,7 @@ def fit_circle_check(
     width,
     use_wrlts=False,
     R_neighbor=None,
-    max_relative_deviation=0.5,
+    max_relative_deviation=0.05,
 ):
     """Fit a circle to a tree section and run quality checks.
 
@@ -643,7 +673,7 @@ def compute_sections(
     min_n_sectors=9,
     width=2,
     inflation_factor=1.5,
-    max_relative_deviation=0.5,
+    max_relative_deviation=0.05,
     X_field=0,
     Y_field=1,
     Z0_field=3,
