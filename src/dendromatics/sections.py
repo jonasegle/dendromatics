@@ -1080,6 +1080,7 @@ def tilt_detection(X_tree, Y_tree, radius, sections, Z_field=2, w_1=3.0, w_2=1.0
 def filter_radius_outliers(
     R,
     sections,
+    sector_perct,
     mad_multiplier=3.0,
     min_residual_threshold=0.005,
     min_valid_sections=3,
@@ -1087,9 +1088,10 @@ def filter_radius_outliers(
 ):
     """Filter section radii that deviate from a robust linear taper model.
 
-    For each tree, a Theil-Sen line is fitted to the valid section radii as a
-    function of height. If the confidence interval on the slope exceeds
-    ``max_slope_ci``, the entire tree is invalidated. Otherwise, individual
+    For each tree, a Theil-Sen estimator is used to check taper consistency
+    via its slope confidence interval. If the CI width exceeds
+    ``max_slope_ci``, the entire tree is invalidated. Otherwise, an
+    occupancy-weighted linear fit determines the taper line, and individual
     sections whose residuals exceed a MAD-based threshold are set to 0.
 
     Parameters
@@ -1099,6 +1101,10 @@ def filter_radius_outliers(
         Sections with R == 0 are considered invalid.
     sections : numpy.ndarray
         Vector of section heights with shape (n_sections,).
+    sector_perct : numpy.ndarray
+        Matrix of shape (n_trees, n_sections) with sector occupancy
+        percentages (0-100). Used as weights for the linear taper fit so
+        that high-occupancy sections have more influence on the line.
     mad_multiplier : float
         Multiplier for the Median Absolute Deviation used as the outlier
         threshold. Higher values are more permissive. Defaults to 3.0.
@@ -1130,13 +1136,19 @@ def filter_radius_outliers(
         h = sections[valid_idx]
         r = R_filtered[i, valid_idx]
 
-        slope, intercept, low_slope, high_slope = theilslopes(r, h)
+        # Theil-Sen for robust CI check on slope consistency
+        theilslope, _, low_slope, high_slope = theilslopes(r, h)
 
-        # Reject entire tree if the taper slope is too uncertain
+        # Reject entire tree if the taper slope is too uncertain or positive (non-tapering)
         ci_width = high_slope - low_slope
-        if ci_width > max_slope_ci:
+        if ci_width > max_slope_ci or theilslope > 0:
             R_filtered[i, :] = 0
             continue
+
+        # Occupancy-weighted linear fit for the taper line
+        occ = sector_perct[i, valid_idx]
+        coeffs = np.polyfit(h, r, 1, w=occ)
+        slope, intercept = coeffs[0], coeffs[1]
 
         predicted = slope * h + intercept
         residuals = r - predicted
