@@ -2,6 +2,7 @@ import numpy as np
 from scipy import optimize as opt
 from scipy.cluster import hierarchy as sch
 from scipy.spatial import distance_matrix
+from scipy.stats.mstats import theilslopes
 
 # -----------------------------------------------------------------------------
 # point_clustering
@@ -1069,6 +1070,142 @@ def tilt_detection(X_tree, Y_tree, radius, sections, Z_field=2, w_1=3.0, w_2=1.0
                 outlier_prob[i][valid_radius] += rel_outlier
 
     return outlier_prob
+
+
+# -----------------------------------------------------------------------------
+# filter_radius_outliers
+# -----------------------------------------------------------------------------
+
+
+def filter_radius_outliers(
+    R,
+    sections,
+    mad_multiplier=3.0,
+    min_residual_threshold=0.005,
+    min_valid_sections=3,
+    max_slope_ci=0.2,
+):
+    """Filter section radii that deviate from a robust linear taper model.
+
+    For each tree, a Theil-Sen line is fitted to the valid section radii as a
+    function of height. If the confidence interval on the slope exceeds
+    ``max_slope_ci``, the entire tree is invalidated. Otherwise, individual
+    sections whose residuals exceed a MAD-based threshold are set to 0.
+
+    Parameters
+    ----------
+    R : numpy.ndarray
+        Matrix of shape (n_trees, n_sections) with fitted circle radii.
+        Sections with R == 0 are considered invalid.
+    sections : numpy.ndarray
+        Vector of section heights with shape (n_sections,).
+    mad_multiplier : float
+        Multiplier for the Median Absolute Deviation used as the outlier
+        threshold. Higher values are more permissive. Defaults to 3.0.
+    min_residual_threshold : float
+        Floor for the residual threshold in meters. Prevents the threshold
+        from collapsing to zero when the fit is nearly perfect. Defaults to
+        0.005.
+    min_valid_sections : int
+        Minimum number of valid sections required to attempt taper fitting.
+        Trees with fewer valid sections are left unchanged. Defaults to 3.
+    max_slope_ci : float
+        Maximum allowed width of the Theil-Sen confidence interval on the
+        slope. Trees whose CI width exceeds this value have all sections
+        invalidated. Lower values are stricter. Defaults to 0.2.
+
+    Returns
+    -------
+    R_filtered : numpy.ndarray
+        Copy of R with outlier radii set to 0.
+    """
+    R_filtered = R.copy()
+
+    for i in range(R.shape[0]):
+        valid_idx = np.where(R_filtered[i, :] > 0)[0]
+
+        if len(valid_idx) < min_valid_sections:
+            continue
+
+        h = sections[valid_idx]
+        r = R_filtered[i, valid_idx]
+
+        slope, intercept, low_slope, high_slope = theilslopes(r, h)
+
+        # Reject entire tree if the taper slope is too uncertain
+        ci_width = high_slope - low_slope
+        if ci_width > max_slope_ci:
+            R_filtered[i, :] = 0
+            continue
+
+        predicted = slope * h + intercept
+        residuals = r - predicted
+
+        mad = np.median(np.abs(residuals))
+        threshold = max(mad_multiplier * mad, min_residual_threshold)
+
+        outlier_mask = np.abs(residuals) > threshold
+        R_filtered[i, valid_idx[outlier_mask]] = 0
+
+    return R_filtered
+
+
+# -----------------------------------------------------------------------------
+# filter_occupancy_outliers
+# -----------------------------------------------------------------------------
+
+
+def filter_occupancy_outliers(
+    R, sector_perct, mad_multiplier=3.0, min_threshold_perct=5.0, min_valid_sections=3
+):
+    """Filter sections with abnormally low sector occupancy for their tree.
+
+    For each tree, the median sector occupancy of valid sections is computed.
+    Sections whose occupancy falls below ``median - max(mad_multiplier * MAD,
+    min_threshold_perct)`` are treated as outliers and their radii are set to 0.
+    This is a one-sided filter: only unusually *low* occupancy is penalised.
+
+    Parameters
+    ----------
+    R : numpy.ndarray
+        Matrix of shape (n_trees, n_sections) with fitted circle radii.
+        Sections with R == 0 are considered invalid.
+    sector_perct : numpy.ndarray
+        Matrix of shape (n_trees, n_sections) with sector occupancy
+        percentages (0-100).
+    mad_multiplier : float
+        Multiplier for the Median Absolute Deviation used as the outlier
+        threshold. Higher values are more permissive. Defaults to 3.0.
+    min_threshold_perct : float
+        Floor for the MAD-based deviation in percentage points. Prevents the
+        threshold from being too tight when occupancy is very consistent.
+        Defaults to 5.0.
+    min_valid_sections : int
+        Minimum number of valid sections required to attempt filtering. Trees
+        with fewer valid sections are left unchanged. Defaults to 3.
+
+    Returns
+    -------
+    R_filtered : numpy.ndarray
+        Copy of R with outlier radii set to 0.
+    """
+    R_filtered = R.copy()
+
+    for i in range(R.shape[0]):
+        valid_idx = np.where(R_filtered[i, :] > 0)[0]
+
+        if len(valid_idx) < min_valid_sections:
+            continue
+
+        occ = sector_perct[i, valid_idx]
+        med = np.median(occ)
+        mad = np.median(np.abs(occ - med))
+        lower_bound = med - max(mad_multiplier * mad, min_threshold_perct)
+
+        outlier_mask = occ < lower_bound
+        R_filtered[i, valid_idx[outlier_mask]] = 0
+
+    return R_filtered
 
 
 # -----------------------------------------------------------------------------
