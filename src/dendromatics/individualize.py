@@ -103,7 +103,7 @@ def compute_axes_exact(
     # tree ID | PCA1 X value | PCA1 Y value | PCA1 Z value | trunk centroid X value
     # | trunk centroid Y value | trunk centroid Z value | height difference |
     # It has as many rows as trees are.
-    detected_trees = np.zeros((np.size(filt_unique_values, 0), 9))
+    detected_trees = np.zeros((np.size(filt_unique_values, 0), 10))
 
     # Index used to display progress information.
     # we use this index because filt_unique_values contains tree_id that
@@ -150,6 +150,7 @@ def compute_axes_exact(
                     )
                 )
             )
+            detected_trees[id_valid, 9] = np.max(clust_stripe[tree_mask][:, Z0_field])  # Max stem Z0
 
             # Coordinate transformation from original to PCA. Done for EVERY
             # point of the original cloud from the PCA of a SINGLE stem.
@@ -364,7 +365,7 @@ def compute_axes_approximate(
 
     # Empty array to be filled with several descriptors of the trees. In the following order:
     # It has as many rows as trees are.
-    detected_trees = np.zeros((np.size(filt_unique_values, 0), 9))
+    detected_trees = np.zeros((np.size(filt_unique_values, 0), 10))
 
     # Index used to display progress information.
     # we use this index because filt_unique_values contains tree_id that
@@ -420,6 +421,7 @@ def compute_axes_approximate(
                     )
                 )
             )
+            detected_trees[id_valid, 9] = np.max(clust_stripe[tree_mask][:, Z0_field])  # Max stem Z0
 
             min_point, max_point = _axis_bb_inter(centroid, detected_trees[id_valid, 1:4], bb_max, bb_min)
 
@@ -489,6 +491,7 @@ def compute_heights(
     X_field,
     Y_field,
     Z_field,
+    sub_canopy_threshold=10.0,
 ):
     """Function used inside individualize_trees during tree individualization
     process. It measures tree heights. The function creates a large-resolution
@@ -593,6 +596,10 @@ def compute_heights(
         tree_heights[i, 0:3] = highest_point
         tree_heights[i, 3] = highest_point[2] - detected_trees[i, 7]  # (z0)
 
+        # Sub-canopy tree: use stem cluster height instead of highest-point height
+        if detected_trees[i, 9] < sub_canopy_threshold:
+            tree_heights[i, 3] = detected_trees[i, 9]
+
         # If tree is deviated from vertical, 1, else, 0.
         if detected_trees[i, -1] > [max_dev]:
             tree_heights[i, -1] = 0
@@ -626,6 +633,7 @@ def individualize_trees(
     Z_field=2,
     Z0_field=3,
     tree_id_field=-1,
+    sub_canopy_threshold=10.0,
     progress_hook=None,
 ):
     """This function expects a filtered (based on the clustering process)
@@ -757,6 +765,7 @@ def individualize_trees(
         X_field,
         Y_field,
         Z_field,
+        sub_canopy_threshold,
     )
 
     # Two new fields are added to the original cloud: - tree ID (id of closest axis)
