@@ -1,4 +1,7 @@
+import os
+
 import numpy as np
+from joblib import Parallel, delayed
 from scipy import optimize as opt
 from scipy.cluster import hierarchy as sch
 from scipy.spatial import distance_matrix
@@ -660,6 +663,228 @@ def fit_circle_check(
 # -----------------------------------------------------------------------------
 
 
+def _process_single_tree(
+    tree_points,
+    sections,
+    section_width,
+    check_params,
+    inflation_factor,
+    max_relative_deviation,
+    n_points_section,
+    R_min,
+    R_max,
+    max_dist,
+    n_sectors,
+    min_n_sectors,
+    width,
+    X_field,
+    Y_field,
+    Z0_field,
+):
+    """Process all sections for a single tree.
+
+    Runs the 3-pass circle fitting pipeline (LSM, WRLTS, Polar) on the
+    points of one tree and returns per-section result arrays.
+
+    Parameters
+    ----------
+    tree_points : numpy.ndarray
+        Point cloud for a single tree (already filtered by tree ID).
+    sections : numpy.ndarray
+        Height values at which sections are computed.
+    section_width : float
+        Half-width of the height band for section extraction.
+    check_params : dict
+        Quality check parameters passed to ``fit_circle_check``.
+    inflation_factor : float
+        Radius multiplier for neighbor-based point prefiltering.
+    max_relative_deviation : float
+        Maximum fractional deviation from neighbor radius.
+    n_points_section : int
+        Minimum number of points required per section.
+    R_min : float
+        Minimum acceptable radius.
+    R_max : float
+        Maximum acceptable radius.
+    max_dist : float
+        Maximum distance for point clustering.
+    n_sectors : int
+        Number of angular sectors for occupancy check.
+    min_n_sectors : int
+        Minimum occupied sectors required.
+    width : float
+        Search radius around circle for sector occupancy.
+    X_field : int
+        Column index for X coordinate.
+    Y_field : int
+        Column index for Y coordinate.
+    Z0_field : int
+        Column index for normalized Z coordinate.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        (X_c, Y_c, R, check_circle, pass_method, sector_perct, n_points_in),
+        each of shape ``(n_sections,)``.
+    """
+    n_sections = sections.size
+
+    # Per-tree output arrays
+    X_c = np.zeros(n_sections, dtype=np.float32)
+    Y_c = np.zeros(n_sections, dtype=np.float32)
+    R = np.zeros(n_sections, dtype=np.float32)
+    check_circle = np.zeros(n_sections, dtype=np.int8)
+    pass_method = np.zeros(n_sections, dtype=np.int8)
+    sector_perct = np.zeros(n_sections, dtype=np.float32)
+    n_points_in = np.zeros(n_sections, dtype=np.int32)
+
+    # --- Extract all section point sets once ---
+    section_points = []
+    for b in sections:
+        mask = (tree_points[:, Z0_field] >= b - section_width / 2) & (
+            tree_points[:, Z0_field] < b + section_width / 2
+        )
+        section_points.append((tree_points[mask, X_field], tree_points[mask, Y_field]))
+
+    # Track which sections need further passes
+    needs_pass2 = set()
+
+    # ================================================================
+    # PASS 1: Quick LSM
+    # ================================================================
+    for s_idx, (X_s, Y_s) in enumerate(section_points):
+        xc, yc, r, passed, s_pct, n_in = fit_circle_check(
+            X_s, Y_s, **check_params
+        )
+        if passed:
+            X_c[s_idx] = xc
+            Y_c[s_idx] = yc
+            R[s_idx] = r
+            check_circle[s_idx] = 1
+            pass_method[s_idx] = 1
+            sector_perct[s_idx] = s_pct
+            n_points_in[s_idx] = n_in
+        else:
+            needs_pass2.add(s_idx)
+            if X_s.size <= n_points_section:
+                check_circle[s_idx] = 2
+            else:
+                check_circle[s_idx] = 1
+
+    # Retroactive relative radius check on Pass 1 results.
+    for s_idx in range(n_sections):
+        if s_idx in needs_pass2:
+            continue
+        if R[s_idx] == 0:
+            continue
+        nb_idx = find_nearest_valid_neighbor(R, s_idx)
+        if nb_idx is not None and not check_relative_radius(
+            R[s_idx], R[nb_idx], max_relative_deviation
+        ):
+            needs_pass2.add(s_idx)
+            X_c[s_idx] = 0
+            Y_c[s_idx] = 0
+            R[s_idx] = 0
+            pass_method[s_idx] = 0
+            sector_perct[s_idx] = 0
+            n_points_in[s_idx] = 0
+
+    # ================================================================
+    # PASS 2: Filtered WRLTS
+    # ================================================================
+    needs_pass3 = set()
+    for s_idx in needs_pass2:
+        X_s, Y_s = section_points[s_idx]
+        if X_s.size <= n_points_section:
+            needs_pass3.add(s_idx)
+            continue
+
+        nb_idx = find_nearest_valid_neighbor(R, s_idx)
+        if nb_idx is None:
+            needs_pass3.add(s_idx)
+            continue
+
+        X_f, Y_f = filter_points_by_neighbor_circle(
+            X_s, Y_s,
+            X_c[nb_idx], Y_c[nb_idx], R[nb_idx],
+            inflation_factor,
+        )
+
+        if X_f.size > n_points_section:
+            X_f, Y_f = point_clustering(X_f, Y_f, max_dist)
+
+        if X_f.size <= n_points_section:
+            needs_pass3.add(s_idx)
+            continue
+
+        xc, yc, r, passed, s_pct, n_in = fit_circle_check(
+            X_f, Y_f,
+            **check_params,
+            use_wrlts=True,
+            R_neighbor=R[nb_idx],
+            max_relative_deviation=max_relative_deviation,
+        )
+
+        if passed:
+            X_c[s_idx] = xc
+            Y_c[s_idx] = yc
+            R[s_idx] = r
+            check_circle[s_idx] = 1
+            pass_method[s_idx] = 2
+            sector_perct[s_idx] = s_pct
+            n_points_in[s_idx] = n_in
+        else:
+            needs_pass3.add(s_idx)
+
+    # ================================================================
+    # PASS 3: Polar Sector Approximation
+    # ================================================================
+    for s_idx in needs_pass3:
+        X_s, Y_s = section_points[s_idx]
+        if X_s.size <= n_points_section:
+            continue
+
+        nb_idx = find_nearest_valid_neighbor(R, s_idx)
+        if nb_idx is None:
+            continue
+
+        X_f, Y_f = filter_points_by_neighbor_circle(
+            X_s, Y_s,
+            X_c[nb_idx], Y_c[nb_idx], R[nb_idx],
+            inflation_factor,
+        )
+
+        if X_f.size <= n_points_section:
+            continue
+
+        xc_approx, yc_approx, r_approx, n_occupied = polar_sector_approximation(
+            X_f, Y_f,
+            X_c[nb_idx], Y_c[nb_idx],
+            n_sectors,
+        )
+
+        if r_approx <= 0 or r_approx < R_min or r_approx > R_max:
+            continue
+
+        baseline_perct, _ = sector_occupancy(
+            X_f, Y_f,
+            X_c[nb_idx], Y_c[nb_idx], R[nb_idx],
+            n_sectors, min_n_sectors, width,
+        )
+        new_perct = n_occupied * 100.0 / n_sectors
+
+        if new_perct > baseline_perct:
+            X_c[s_idx] = xc_approx
+            Y_c[s_idx] = yc_approx
+            R[s_idx] = r_approx
+            check_circle[s_idx] = 1
+            pass_method[s_idx] = 3
+            sector_perct[s_idx] = new_perct
+            n_points_in[s_idx] = 0
+
+    return (X_c, Y_c, R, check_circle, pass_method, sector_perct, n_points_in)
+
+
 def compute_sections(
     stems,
     sections,
@@ -680,6 +905,7 @@ def compute_sections(
     Z0_field=3,
     tree_id_field=4,
     progress_hook=None,
+    n_workers=None,
 ):
     """Compute stem diameters at given sections using a multi-pass circle
     fitting pipeline.
@@ -744,6 +970,11 @@ def compute_sections(
     progress_hook : callable, optional
         A hook that take two int, the first is the current number of iteration
         and the second is the targeted number iteration. Defaults to None.
+    n_workers : int, optional
+        Number of parallel worker processes for per-tree processing.
+        ``None`` auto-detects based on CPU count, ``1`` runs
+        sequentially. Uses joblib with the loky backend.
+        Defaults to None.
 
     Returns
     -------
@@ -767,6 +998,9 @@ def compute_sections(
     n_trees = trees.size
     n_sections = sections.size
 
+    if n_workers is None:
+        n_workers = min(os.cpu_count() or 1, n_trees)
+
     # Quality check parameters bundled for convenience
     check_params = dict(
         times_R=times_R,
@@ -779,7 +1013,41 @@ def compute_sections(
         width=width,
     )
 
-    # Output matrices
+    # Pre-split stems by tree ID (O(N log N) once instead of O(N) per tree)
+    sort_idx = np.argsort(stems[:, tree_id_field])
+    stems_sorted = stems[sort_idx]
+    split_points = np.searchsorted(stems_sorted[:, tree_id_field], trees, side="right")
+    tree_point_arrays = np.split(stems_sorted, split_points[:-1])
+    del stems_sorted, sort_idx
+
+    if progress_hook is not None:
+        progress_hook(0, n_trees)
+
+    # joblib loky backend: spawns real processes (bypasses GIL),
+    # memory-maps large numpy arrays, works from PyQt QThreads.
+    all_results = Parallel(n_jobs=n_workers, backend="loky")(
+        delayed(_process_single_tree)(
+            tree_points,
+            sections,
+            section_width,
+            check_params,
+            inflation_factor,
+            max_relative_deviation,
+            n_points_section,
+            R_min,
+            R_max,
+            max_dist,
+            n_sectors,
+            min_n_sectors,
+            width,
+            X_field,
+            Y_field,
+            Z0_field,
+        )
+        for tree_points in tree_point_arrays
+    )
+
+    # Assemble per-tree results into output matrices
     X_c = np.zeros((n_trees, n_sections), dtype=np.float32)
     Y_c = np.zeros((n_trees, n_sections), dtype=np.float32)
     R = np.zeros((n_trees, n_sections), dtype=np.float32)
@@ -788,172 +1056,16 @@ def compute_sections(
     sector_perct = np.zeros((n_trees, n_sections), dtype=np.float32)
     n_points_in = np.zeros((n_trees, n_sections), dtype=np.int32)
 
-    tree = -1
-    if progress_hook is not None:
-        progress_hook(0, n_trees)
-
-    for tr in trees:
-        tree_i = stems[stems[:, tree_id_field] == tr, :]
-        tree = tree + 1
+    for tree_idx, result in enumerate(all_results):
+        X_c[tree_idx, :] = result[0]
+        Y_c[tree_idx, :] = result[1]
+        R[tree_idx, :] = result[2]
+        check_circle[tree_idx, :] = result[3]
+        pass_method[tree_idx, :] = result[4]
+        sector_perct[tree_idx, :] = result[5]
+        n_points_in[tree_idx, :] = result[6]
         if progress_hook is not None:
-            progress_hook(tree + 1, n_trees)
-
-        # --- Extract all section point sets once ---
-        section_points = []
-        for b in sections:
-            mask = (tree_i[:, Z0_field] >= b - section_width / 2) & (
-                tree_i[:, Z0_field] < b + section_width / 2
-            )
-            section_points.append((tree_i[mask, X_field], tree_i[mask, Y_field]))
-
-        # Track which sections need further passes
-        needs_pass2 = set()
-
-        # ================================================================
-        # PASS 1: Quick LSM
-        # ================================================================
-        for s_idx, (X_s, Y_s) in enumerate(section_points):
-            xc, yc, r, passed, s_pct, n_in = fit_circle_check(
-                X_s, Y_s, **check_params
-            )
-            if passed:
-                X_c[tree, s_idx] = xc
-                Y_c[tree, s_idx] = yc
-                R[tree, s_idx] = r
-                check_circle[tree, s_idx] = 1
-                pass_method[tree, s_idx] = 1
-                sector_perct[tree, s_idx] = s_pct
-                n_points_in[tree, s_idx] = n_in
-            else:
-                # Mark as needing Pass 2
-                needs_pass2.add(s_idx)
-                if X_s.size <= n_points_section:
-                    check_circle[tree, s_idx] = 2
-                else:
-                    # Store the fit result temporarily (may be useful for debugging)
-                    # but keep R=0 to indicate invalid
-                    check_circle[tree, s_idx] = 1
-
-        # Retroactive relative radius check on Pass 1 results.
-        # Isolated sections (no valid neighbors) are kept as valid.
-        for s_idx in range(n_sections):
-            if s_idx in needs_pass2:
-                continue
-            if R[tree, s_idx] == 0:
-                continue
-            nb_idx = find_nearest_valid_neighbor(R[tree, :], s_idx)
-            if nb_idx is not None and not check_relative_radius(
-                R[tree, s_idx], R[tree, nb_idx], max_relative_deviation
-            ):
-                # Invalidate: send to Pass 2
-                needs_pass2.add(s_idx)
-                X_c[tree, s_idx] = 0
-                Y_c[tree, s_idx] = 0
-                R[tree, s_idx] = 0
-                pass_method[tree, s_idx] = 0
-                sector_perct[tree, s_idx] = 0
-                n_points_in[tree, s_idx] = 0
-
-        # ================================================================
-        # PASS 2: Filtered WRLTS
-        # ================================================================
-        needs_pass3 = set()
-        for s_idx in needs_pass2:
-            X_s, Y_s = section_points[s_idx]
-            if X_s.size <= n_points_section:
-                needs_pass3.add(s_idx)
-                continue
-
-            nb_idx = find_nearest_valid_neighbor(R[tree, :], s_idx)
-            if nb_idx is None:
-                needs_pass3.add(s_idx)
-                continue
-
-            # Spatial prefilter using neighbor circle
-            X_f, Y_f = filter_points_by_neighbor_circle(
-                X_s, Y_s,
-                X_c[tree, nb_idx], Y_c[tree, nb_idx], R[tree, nb_idx],
-                inflation_factor,
-            )
-
-            # Clustering to find largest cluster
-            if X_f.size > n_points_section:
-                X_f, Y_f = point_clustering(X_f, Y_f, max_dist)
-
-            if X_f.size <= n_points_section:
-                needs_pass3.add(s_idx)
-                continue
-
-            # WRLTS fit on filtered + clustered points
-            xc, yc, r, passed, s_pct, n_in = fit_circle_check(
-                X_f, Y_f,
-                **check_params,
-                use_wrlts=True,
-                R_neighbor=R[tree, nb_idx],
-                max_relative_deviation=max_relative_deviation,
-            )
-
-            if passed:
-                X_c[tree, s_idx] = xc
-                Y_c[tree, s_idx] = yc
-                R[tree, s_idx] = r
-                check_circle[tree, s_idx] = 1
-                pass_method[tree, s_idx] = 2
-                sector_perct[tree, s_idx] = s_pct
-                n_points_in[tree, s_idx] = n_in
-            else:
-                needs_pass3.add(s_idx)
-
-        # ================================================================
-        # PASS 3: Polar Sector Approximation
-        # ================================================================
-        for s_idx in needs_pass3:
-            X_s, Y_s = section_points[s_idx]
-            if X_s.size <= n_points_section:
-                continue
-
-            nb_idx = find_nearest_valid_neighbor(R[tree, :], s_idx)
-            if nb_idx is None:
-                # No valid neighbor anywhere — permanently invalid
-                continue
-
-            # Spatial prefilter using neighbor circle
-            X_f, Y_f = filter_points_by_neighbor_circle(
-                X_s, Y_s,
-                X_c[tree, nb_idx], Y_c[tree, nb_idx], R[tree, nb_idx],
-                inflation_factor,
-            )
-
-            if X_f.size <= n_points_section:
-                continue
-
-            # Polar sector approximation using neighbor center
-            xc_approx, yc_approx, r_approx, n_occupied = polar_sector_approximation(
-                X_f, Y_f,
-                X_c[tree, nb_idx], Y_c[tree, nb_idx],
-                n_sectors,
-            )
-
-            if r_approx <= 0 or r_approx < R_min or r_approx > R_max:
-                continue
-
-            # Check if sector occupancy improved compared to baseline
-            # (baseline: sector occupancy using the neighbor circle parameters)
-            baseline_perct, _ = sector_occupancy(
-                X_f, Y_f,
-                X_c[tree, nb_idx], Y_c[tree, nb_idx], R[tree, nb_idx],
-                n_sectors, min_n_sectors, width,
-            )
-            new_perct = n_occupied * 100.0 / n_sectors
-
-            if new_perct > baseline_perct:
-                X_c[tree, s_idx] = xc_approx
-                Y_c[tree, s_idx] = yc_approx
-                R[tree, s_idx] = r_approx
-                check_circle[tree, s_idx] = 1
-                pass_method[tree, s_idx] = 3
-                sector_perct[tree, s_idx] = new_perct
-                n_points_in[tree, s_idx] = 0  # Not applicable for polar method
+            progress_hook(tree_idx + 1, n_trees)
 
     return (X_c, Y_c, R, check_circle, pass_method, sector_perct, n_points_in)
 
