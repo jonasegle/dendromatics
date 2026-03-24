@@ -161,12 +161,25 @@ def verticality_clustering_iteration(
     # belong to each cluster and checking if the difference between the
     # maximum and minimum z value is higher than the defined height range.
     if h_range_value > 0:
-        valid_mask = np.zeros(len(large_clusters), dtype=bool)
-        for idx, i in enumerate(large_clusters):
-            cluster_mask = cluster_labels == i
-            cluster_points = vox_filt_stripe[cluster_mask]
-            if np.ptp(cluster_points[:, 2]) > h_range_value:
-                valid_mask[idx] = True
+        # Vectorized height range check: compute per-cluster z_min and z_max
+        # in O(V + K) instead of O(K * V).
+        label_max = int(cluster_labels.max()) + 1
+        label_to_idx = np.full(label_max + 1, -1, dtype=np.intp)
+        label_to_idx[large_clusters] = np.arange(len(large_clusters))
+
+        n_large = len(large_clusters)
+        z_min = np.full(n_large, np.inf)
+        z_max = np.full(n_large, -np.inf)
+
+        mapped = label_to_idx[cluster_labels]
+        in_large = mapped >= 0
+        z_vals = vox_filt_stripe[in_large, 2]
+        mapped_valid = mapped[in_large]
+
+        np.minimum.at(z_min, mapped_valid, z_vals)
+        np.maximum.at(z_max, mapped_valid, z_vals)
+
+        valid_mask = (z_max - z_min) > h_range_value
         large_clusters = large_clusters[valid_mask]
 
     # Removing the points that are not in valid clusters.
