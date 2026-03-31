@@ -23,6 +23,7 @@ def generate_circles_cloud(
     n_sectors=16,
     min_n_sectors=9,
     circa_points=200,
+    tree_quality=None,
 ):
     """This function generates points that comprise the circles computed by
     fit_circle_check function, so sections can be visualized. The circles
@@ -78,7 +79,7 @@ def generate_circles_cloud(
 
     # Empty array that will contain the information about each section, to then
     # be used to complete the .LAS file data.
-    section_c_xyz = np.zeros([tree_section[0] * tree_section[1], 10])
+    section_c_xyz = np.zeros([tree_section[0] * tree_section[1], 11])
 
     # Auxiliary index indicating which section is in use.
     section = 0
@@ -100,6 +101,7 @@ def generate_circles_cloud(
                     sections[j],
                     outliers[i, j],
                     pass_method[i, j],
+                    i,
                 ]
 
                 section = section + 1
@@ -111,7 +113,8 @@ def generate_circles_cloud(
     n = centers.shape[0]
 
     # Empty vector to be filled with the coordinates of each circle.
-    coords = np.zeros((circa_points * n, 12))
+    n_cols = 13 if tree_quality is not None else 12
+    coords = np.zeros((circa_points * n, n_cols))
 
     # User-create function to tranform polar coordinates to cartesian coordinates.
     def polar_to_cart(theta, rho):
@@ -151,6 +154,8 @@ def generate_circles_cloud(
             coords[start:end, 10] = 0  # passes quality checks
 
         coords[start:end, 11] = centers[i, 9]  # pass_method
+        if tree_quality is not None:
+            coords[start:end, 12] = tree_quality[int(centers[i, 10])]
     return coords
 
 
@@ -283,6 +288,7 @@ def generate_axis_cloud(
     stripe_lower_limit=0.5,
     stripe_upper_limit=2.5,
     point_interval=0.01,
+    tree_quality=None,
 ):
     """This function generates points that comprise the axes computed by
     individualize_trees, so that they can be visualized. It output two
@@ -324,6 +330,10 @@ def generate_axis_cloud(
 
     axes_points = np.zeros((tree_vector.shape[0] * (up_iter + down_iter), 3))
     tilt = np.zeros(tree_vector.shape[0] * (up_iter + down_iter))
+    if tree_quality is not None:
+        tree_quality_per_point = np.zeros(
+            tree_vector.shape[0] * (up_iter + down_iter), dtype=np.float32
+        )
 
     ind = 0
     for i in range(tree_vector.shape[0]):
@@ -343,9 +353,15 @@ def generate_axis_cloud(
                 + tree_vector[i, 4:7]
             )
             tilt[ind:next_ind] = tree_vector[i, 8]
+            if tree_quality is not None:
+                tree_quality_per_point[ind:next_ind] = tree_quality[i]
             ind = next_ind
 
     axes_points = axes_points[:ind]
+    tilt = tilt[:ind]
+    if tree_quality is not None:
+        tree_quality_per_point = tree_quality_per_point[:ind]
+        return axes_points, tilt, tree_quality_per_point
     return axes_points, tilt
 
 

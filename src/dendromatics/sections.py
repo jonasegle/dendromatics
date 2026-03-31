@@ -1333,6 +1333,110 @@ def filter_occupancy_outliers(
 
 
 # -----------------------------------------------------------------------------
+# compute_tree_quality
+# -----------------------------------------------------------------------------
+
+
+def compute_tree_quality(
+    R: np.ndarray,
+    quality_mask: np.ndarray,
+    outliers: np.ndarray,
+    sector_perct: np.ndarray,
+    sections: np.ndarray,
+) -> np.ndarray:
+    """Compute a per-tree quality score (0-1) from six weighted sub-scores.
+
+    Parameters
+    ----------
+    R : np.ndarray
+        (n_trees, n_sections) fitted circle radii after filtering. 0 = not fitted.
+    quality_mask : np.ndarray
+        Boolean (n_trees, n_sections). True = section passes all quality checks.
+    outliers : np.ndarray
+        (n_trees, n_sections) outlier probabilities in [0, 1] from tilt_detection.
+    sector_perct : np.ndarray
+        (n_trees, n_sections) sector occupancy percentages in [0, 100].
+    sections : np.ndarray
+        (n_sections,) normalised section heights (Z0) in metres.
+
+    Returns
+    -------
+    np.ndarray
+        float32 (n_trees,) with values in [0, 1].
+
+    Notes
+    -----
+    Sub-scores and weights:
+
+    1. Section pass rate        (0.25) – fraction of sections passing quality_mask
+    2. Mean sector occupancy    (0.20) – mean sector_perct / 100
+    3. Circle fit success rate  (0.15) – fraction of sections with R > 0
+    4. Taper consistency        (0.15) – Theil-Sen linear fit of diameter vs height
+    5. Low outlier probability  (0.15) – 1 - mean(outliers)
+    6. Sector occ. consistency  (0.10) – 1 - coefficient of variation of sector_perct
+    """
+    from scipy.stats import theilslopes
+
+    n_trees, n_sections_total = R.shape
+    scores = np.zeros(n_trees, dtype=np.float32)
+
+    for i in range(n_trees):
+        dia_row = R[i] * 2.0
+        qo_row = quality_mask[i].astype(float)
+        q1_row = outliers[i].astype(float)
+        q2_row = sector_perct[i].astype(float)
+
+        # 1. Section pass rate
+        s_pass_rate = float(np.nansum(qo_row == 1.0)) / n_sections_total
+
+        # 2. Mean sector occupancy (0-100 -> 0-1)
+        q2_valid = q2_row[~np.isnan(q2_row)]
+        s_sector = float(np.mean(q2_valid) / 100.0) if len(q2_valid) > 0 else 0.0
+
+        # 3. Sector occupancy consistency (1 - coefficient of variation)
+        if len(q2_valid) >= 2 and np.mean(q2_valid) > 0:
+            cv = float(np.std(q2_valid) / np.mean(q2_valid))
+            s_sector_consistency = 1.0 - min(cv, 1.0)
+        else:
+            s_sector_consistency = 0.0
+
+        # 4. Circle fit success rate
+        valid_dia = ~np.isnan(dia_row) & (dia_row > 0)
+        s_fit_rate = float(np.sum(valid_dia)) / n_sections_total
+
+        # 5. Low outlier probability (invert: lower = higher quality)
+        q1_valid = q1_row[~np.isnan(q1_row)]
+        s_inlier = float(1.0 - np.mean(q1_valid)) if len(q1_valid) > 0 else 0.0
+
+        # 6. Taper consistency (Theil-Sen fit of diameter vs height)
+        n_heights = min(len(dia_row), len(sections))
+        heights = sections[:n_heights].astype(float)
+        valid_mask_taper = valid_dia[:n_heights] & ~np.isnan(heights)
+        if np.sum(valid_mask_taper) >= 3:
+            h = heights[valid_mask_taper]
+            d = dia_row[:n_heights][valid_mask_taper]
+            slope, intercept, _, _ = theilslopes(d, h)
+            predicted = np.maximum(intercept + slope * h, 1e-6)
+            rel_residuals = (d - predicted) / predicted
+            rms = float(np.sqrt(np.mean(rel_residuals ** 2)))
+            s_taper = 1.0 - min(rms, 1.0)
+        else:
+            s_taper = 0.5
+
+        scores[i] = round(
+            0.25 * s_pass_rate
+            + 0.20 * s_sector
+            + 0.15 * s_fit_rate
+            + 0.15 * s_taper
+            + 0.15 * s_inlier
+            + 0.10 * s_sector_consistency,
+            4,
+        )
+
+    return scores
+
+
+# -----------------------------------------------------------------------------
 # tree_locator
 # --------------------------------------------------------------------------
 
